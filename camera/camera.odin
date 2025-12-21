@@ -208,27 +208,31 @@ init :: proc() {
 }
 
 update :: proc() {
+    // calculate delta time
     current_frame := glfw.GetTime()
     delta_time = current_frame - last_frame
     last_frame = current_frame
 
+    // update camera
     movement()
 
-    rotation := [3]f32{0.5, 1.0, 0.0}
+    // which way the cube is rotated
+    cube_rotation := [3]f32{0.5, 1.0, 0.0}
 
+    // calculate look direction
     front : [3]f32
     front[0] = math.cos(math.to_radians(yaw)) * math.cos(math.to_radians(pitch))
     front[1] = math.sin(math.to_radians(pitch))
     front[2] = math.sin(math.to_radians(yaw)) * math.cos(math.to_radians(pitch))
-
     camera_front = linalg.normalize(front)
 
-    model := linalg.matrix4_rotate_f32(0.5 * f32(glfw.GetTime()), rotation)
+    // calculate MVP matrix
+    model := linalg.matrix4_rotate_f32(0.5 * f32(glfw.GetTime()), cube_rotation)
     view := linalg.matrix4_look_at_f32(camera_pos, camera_pos + camera_front, camera_up)
     proj := linalg.matrix4_perspective_f32(math.to_radians(f32(45.0)), f32(WIDTH)/f32(HEIGHT), 0.1, 100.0)
-
     mvp := proj * view * model
 
+    // set uniform
     u_mvp := gl.GetUniformLocation(program, "u_MVP")
     gl.UniformMatrix4fv(u_mvp, 1, false, &mvp[0, 0])
 }
@@ -263,6 +267,7 @@ movement :: proc() {
         camera_pos[1] -= f32(speed * delta_time)
     }
 
+    // camera rotation
     if glfw.GetKey(window, glfw.KEY_LEFT) == glfw.PRESS {
         yaw -= f32(turn_speed * delta_time)
     }
@@ -276,6 +281,7 @@ movement :: proc() {
         pitch -= f32(turn_speed * delta_time)
     }
 
+    // clamp pitch
     if pitch > 89.0  { pitch = 89.0 }
     if pitch < -89.0 { pitch = -89.0 }
 }
