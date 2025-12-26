@@ -22,7 +22,6 @@ u_proj, u_view, u_model : i32
 
 
 WIDTH, HEIGHT : i32 = 512, 512
-block_positions : [dynamic][3]f32
 
 camera_pos := [3]f32{0.0, 0.0, 3.0}
 camera_front := [3]f32{0.0, 0.0, -1.0}
@@ -35,6 +34,27 @@ first_mouse := true
 
 delta_time := f64(0.0)
 last_frame := f64(0.0)
+
+Block_ID :: enum u8 {
+    Air = 0,
+    Solid,
+}
+
+CHUNK_SIZE :: 16
+CHUNK_AREA :: CHUNK_SIZE * CHUNK_SIZE
+CHUNK_VOLUME :: CHUNK_AREA * CHUNK_SIZE
+
+Chunk :: struct {
+    blocks : [CHUNK_VOLUME]Block_ID
+}
+
+chunk_index :: proc(x, y, z: int) -> int {
+    return x + CHUNK_SIZE * (y + CHUNK_SIZE * z)
+}
+
+//temp
+
+world_chunk : Chunk
 
 main :: proc() {
     // init glfw
@@ -218,13 +238,17 @@ init :: proc() {
     u_view  = gl.GetUniformLocation(program, "u_View")
     u_model = gl.GetUniformLocation(program, "u_Model")
 
-    // generate world data once
+    // generate world chunk
+    for i in 0..<CHUNK_VOLUME {
+        world_chunk.blocks[i] = .Air
+    }  
+
+    // set half of the chunk to solid
     for x := 0; x < 10; x += 1 {
-        for y := 0; y < 10; y += 1 {
+        for y := 0; y < 5; y += 1 {
             for z := 0; z < 10; z += 1 {
-                if rand.float32() > 0.5 {
-                    append(&block_positions, [3]f32{f32(x), f32(y), f32(z)})
-                }
+                idx := chunk_index(x, y, z)
+                world_chunk.blocks[idx] = .Solid
             }
         }
     }
@@ -298,9 +322,7 @@ draw :: proc() {
     gl.UniformMatrix4fv(u_proj, 1, false, &proj[0,0])
 
     // draw objects
-    for pos in block_positions {
-        draw_block(pos)
-    }
+    draw_chunk_blocks(&world_chunk)
 }
 
 draw_block :: proc(pos: [3]f32) {
@@ -309,8 +331,24 @@ draw_block :: proc(pos: [3]f32) {
     gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, nil)
 }
 
+draw_chunk_blocks :: proc(chunk: ^Chunk) {
+    for z in 0..<CHUNK_SIZE {
+        for y in 0..<CHUNK_SIZE {
+            for x in 0..<CHUNK_SIZE {
+                idx := chunk_index(x, y, z)
+                if chunk.blocks[idx] == .Air {
+                    continue
+                }
+
+                pos := [3]f32{f32(x), f32(y), f32(z)}
+                draw_block(pos)
+            }
+        }
+    }
+}
+
 exit :: proc() {
-    delete(block_positions)
+    
 }
 
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
