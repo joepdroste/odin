@@ -273,15 +273,13 @@ movement :: proc() {
 }
 
 draw :: proc() {
-    // clear screen
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
     gl.UseProgram(program)
     gl.BindVertexArray(vao)
     gl.BindTexture(gl.TEXTURE_2D, texture)
 
-    // 1. Calculate View and Projection once per frame
-    // calculate look direction
+    // camera direction
     front : [3]f32
     front[0] = math.cos(math.to_radians(yaw)) * math.cos(math.to_radians(pitch))
     front[1] = math.sin(math.to_radians(pitch))
@@ -289,18 +287,27 @@ draw :: proc() {
     camera_front = linalg.normalize(front)
 
     view := linalg.matrix4_look_at_f32(camera_pos, camera_pos + camera_front, camera_up)
-    proj := linalg.matrix4_perspective_f32(math.to_radians_f32(45.0), f32(WIDTH)/f32(HEIGHT), 0.1, 100.0)
+    proj := linalg.matrix4_perspective_f32(
+        math.to_radians_f32(45.0),
+        f32(WIDTH)/f32(HEIGHT),
+        0.1, 100.0
+    )
 
-    gl.UniformMatrix4fv(u_proj, 1, false, &proj[0,0])
+    // upload once per frame
     gl.UniformMatrix4fv(u_view, 1, false, &view[0,0])
+    gl.UniformMatrix4fv(u_proj, 1, false, &proj[0,0])
 
+    // draw objects
     for pos in block_positions {
-        model := linalg.matrix4_translate_f32(pos)
-        gl.UniformMatrix4fv(u_model, 1, false, &model[0,0])
-        gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, nil)
+        draw_block(pos)
     }
 }
 
+draw_block :: proc(pos: [3]f32) {
+    model := linalg.matrix4_translate_f32(pos)
+    gl.UniformMatrix4fv(u_model, 1, false, &model[0,0])
+    gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, nil)
+}
 
 exit :: proc() {
     delete(block_positions)
