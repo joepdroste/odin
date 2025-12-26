@@ -27,6 +27,9 @@ camera_up := [3]f32{0.0, 1.0, 0.0}
 yaw   : f32 = -90.0
 pitch : f32 = 0.0
 
+last_x, last_y : f64 = 250.0, 250.0
+first_mouse := true
+
 delta_time := f64(0.0)
 last_frame := f64(0.0)
 
@@ -64,6 +67,8 @@ main :: proc() {
     // set callbacks
     glfw.SetKeyCallback(window, key_callback)
     glfw.SetFramebufferSizeCallback(window, size_callback)
+    glfw.SetCursorPosCallback(window, mouse_callback)
+    glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
     // load gl functions
     gl.load_up_to(int(GL_MAJOR_VERSION), GL_MINOR_VERSION, glfw.gl_set_proc_address)
 
@@ -239,7 +244,6 @@ update :: proc() {
 
 movement :: proc() {
     speed := 2.5
-    turn_speed := 90.0
 
     // forward / backward
     if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
@@ -266,24 +270,6 @@ movement :: proc() {
     if glfw.GetKey(window, glfw.KEY_LEFT_SHIFT) == glfw.PRESS {
         camera_pos[1] -= f32(speed * delta_time)
     }
-
-    // camera rotation
-    if glfw.GetKey(window, glfw.KEY_LEFT) == glfw.PRESS {
-        yaw -= f32(turn_speed * delta_time)
-    }
-    if glfw.GetKey(window, glfw.KEY_RIGHT) == glfw.PRESS {
-        yaw += f32(turn_speed * delta_time)
-    }
-    if glfw.GetKey(window, glfw.KEY_UP) == glfw.PRESS {
-        pitch += f32(turn_speed * delta_time)
-    }
-    if glfw.GetKey(window, glfw.KEY_DOWN) == glfw.PRESS {
-        pitch -= f32(turn_speed * delta_time)
-    }
-
-    // clamp pitch
-    if pitch > 89.0  { pitch = 89.0 }
-    if pitch < -89.0 { pitch = -89.0 }
 }
 
 draw :: proc() {
@@ -305,6 +291,29 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
     if key == glfw.KEY_ESCAPE {
         running = false
     }
+}
+
+mouse_callback :: proc "c" (window: glfw.WindowHandle, xpos, ypos: f64) {
+    if first_mouse {
+        last_x = xpos
+        last_y = ypos
+        first_mouse = false
+    }
+
+    x_offset := xpos - last_x
+    y_offset := last_y - ypos
+    last_x = xpos
+    last_y = ypos
+
+    sensitivity := 0.1
+    x_offset *= sensitivity
+    y_offset *= sensitivity
+
+    yaw   += f32(x_offset)
+    pitch += f32(y_offset)
+
+    if pitch >  89.0 { pitch =  89.0 }
+    if pitch < -89.0 { pitch = -89.0 }
 }
 
 size_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
