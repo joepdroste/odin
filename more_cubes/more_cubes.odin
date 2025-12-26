@@ -18,6 +18,8 @@ running : b32 = true
 window: glfw.WindowHandle
 
 program, vao, vbo, ebo, texture : u32
+u_proj, u_view, u_model : i32
+
 
 WIDTH, HEIGHT : i32 = 512, 512
 block_positions : [dynamic][3]f32
@@ -212,6 +214,10 @@ init :: proc() {
     gl.BindBuffer(gl.ARRAY_BUFFER, 0)
     gl.BindVertexArray(0)
 
+    u_proj  = gl.GetUniformLocation(program, "u_Projection")
+    u_view  = gl.GetUniformLocation(program, "u_View")
+    u_model = gl.GetUniformLocation(program, "u_Model")
+
     // generate world data once
     for x := 0; x < 10; x += 1 {
         for y := 0; y < 10; y += 1 {
@@ -229,6 +235,8 @@ update :: proc() {
     current_frame := glfw.GetTime()
     delta_time = current_frame - last_frame
     last_frame = current_frame
+    
+    print_fps()
 
     // update camera
     movement()
@@ -281,22 +289,18 @@ draw :: proc() {
     camera_front = linalg.normalize(front)
 
     view := linalg.matrix4_look_at_f32(camera_pos, camera_pos + camera_front, camera_up)
-    proj := linalg.matrix4_perspective_f32(math.to_radians(f32(45.0)), f32(WIDTH)/f32(HEIGHT), 0.1, 100.0)
+    proj := linalg.matrix4_perspective_f32(math.to_radians_f32(45.0), f32(WIDTH)/f32(HEIGHT), 0.1, 100.0)
+
+    gl.UniformMatrix4fv(u_proj, 1, false, &proj[0,0])
+    gl.UniformMatrix4fv(u_view, 1, false, &view[0,0])
 
     for pos in block_positions {
-        draw_block(pos, view, proj)
+        model := linalg.matrix4_translate_f32(pos)
+        gl.UniformMatrix4fv(u_model, 1, false, &model[0,0])
+        gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, nil)
     }
 }
 
-draw_block :: proc(pos: [3]f32, view, proj: matrix[4, 4]f32) {
-    // Create model matrix for this specific position
-    model := linalg.matrix4_translate_f32(pos)
-    mvp := proj * view * model
-
-    u_mvp := gl.GetUniformLocation(program, "u_MVP")
-    gl.UniformMatrix4fv(u_mvp, 1, false, &mvp[0, 0])
-    gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, nil)
-}
 
 exit :: proc() {
     delete(block_positions)
@@ -341,4 +345,12 @@ size_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
     gl.Viewport(0, 0, width, height)
     WIDTH = width
     HEIGHT = height
+}
+
+print_fps :: proc() {
+    // print fps to console
+    if delta_time > 0.0 {
+        fps := 1.0 / delta_time
+        fmt.printf("FPS: %.2f\n", fps)
+    }
 }
