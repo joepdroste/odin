@@ -18,6 +18,8 @@ window: glfw.WindowHandle
 
 program, vao, vbo, ebo, texture : u32
 u_proj, u_view, u_model : i32
+stride : i32 = 8 * size_of(f32)
+
 
 
 WIDTH, HEIGHT : i32 = 512, 512
@@ -49,36 +51,52 @@ Face_Dir :: enum {
 }
 
 face_vertices := [Face_Dir][4][3]f32{
-    Face_Dir.PosX = {
+    .PosX = {
         {1,0,0}, {1,1,0}, {1,1,1}, {1,0,1},
     },
-    Face_Dir.NegX = {
+    .NegX = {
         {0,0,1}, {0,1,1}, {0,1,0}, {0,0,0},
     },
-    Face_Dir.PosY = {
+    .PosY = {
         {0,1,1}, {1,1,1}, {1,1,0}, {0,1,0},
     },
-    Face_Dir.NegY = {
+    .NegY = {
         {0,0,0}, {1,0,0}, {1,0,1}, {0,0,1},
     },
-    Face_Dir.PosZ = {
+    .PosZ = {
         {0,0,1}, {1,0,1}, {1,1,1}, {0,1,1},
     },
-    Face_Dir.NegZ = {
+    .NegZ = {
         {1,0,0}, {0,0,0}, {0,1,0}, {1,1,0},
     },
 }
 
+face_normals := [Face_Dir][3]f32{
+    .PosX = { 1, 0, 0 },
+    .NegX = { -1, 0, 0 },
+    .PosY = { 0, 1, 0 },
+    .NegY = { 0, -1, 0 },
+    .PosZ = { 0, 0, 1 },
+    .NegZ = { 0, 0, -1 },
+}
+
 emit_face :: proc(mesh : ^Chunk_Mesh, x, y, z : int, dir: Face_Dir) {
-    base_index := u32(len(mesh.vertices) / 5) // 5 floats per vertex 3 pos, 2 uv
+    base_index := u32(len(mesh.vertices) / 8) // 8 floats per vertex 3 pos, 3 normal, 2 uv
 
     for v in 0..<4 { // 4 vertices per face
         pos := face_vertices[dir][v] // get vertex position
 
+        // position
         append(&mesh.vertices, f32(x) + pos[0])
         append(&mesh.vertices, f32(y) + pos[1])
         append(&mesh.vertices, f32(z) + pos[2])
 
+        // normal
+        append(&mesh.vertices, face_normals[dir][0])
+        append(&mesh.vertices, face_normals[dir][1])
+        append(&mesh.vertices, face_normals[dir][2])
+
+        // UV
         uvs := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
         append(&mesh.vertices, uvs[v][0])
         append(&mesh.vertices, uvs[v][1])
@@ -183,10 +201,12 @@ upload_chunk_mesh :: proc(mesh : ^Chunk_Mesh) {
     )
 
     // vertex layout (same as your cube)
-    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 5 * size_of(f32), uintptr(0))
+    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, stride, uintptr(0))
     gl.EnableVertexAttribArray(0)
-    gl.VertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, 5 * size_of(f32), uintptr(3 * size_of(f32)))
+    gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, stride, uintptr(3 * size_of(f32)))
     gl.EnableVertexAttribArray(1)
+    gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, stride, uintptr(6 * size_of(f32)))
+    gl.EnableVertexAttribArray(2)
 
     gl.BindVertexArray(0)
 }
@@ -273,67 +293,6 @@ init :: proc() {
         return
     }
 
-    // define vertex data
-    vertices := [?]f32{
-        // Front
-        -0.5, -0.5,  0.5,  0.0, 0.0, // Left Bottom
-        0.5, -0.5,  0.5,  1.0, 0.0, // Right Bottom
-        0.5,  0.5,  0.5,  1.0, 1.0, // Right Top
-        -0.5,  0.5,  0.5,  0.0, 1.0, // Left Top
-
-        // Right
-        0.5, -0.5,  0.5,  0.0, 0.0, // Left Bottom
-        0.5, -0.5, -0.5,  1.0, 0.0, // Right Bottom
-        0.5,  0.5, -0.5,  1.0, 1.0, // Right Top
-        0.5,  0.5,  0.5,  0.0, 1.0, // Left Top
-
-        // Back
-        0.5, -0.5, -0.5,  0.0, 0.0, // Left Bottom
-        -0.5, -0.5, -0.5,  1.0, 0.0, // Right Bottom
-        -0.5,  0.5, -0.5,  1.0, 1.0, // Right Top
-        0.5,  0.5, -0.5,  0.0, 1.0, // Left Top
-
-        // Left
-        -0.5, -0.5, -0.5,  0.0, 0.0, // Left Bottom
-        -0.5, -0.5,  0.5,  1.0, 0.0, // Right Bottom
-        -0.5,  0.5,  0.5,  1.0, 1.0, // Right Top
-        -0.5,  0.5, -0.5,  0.0, 1.0, // Left Top
-
-        // Bottom
-        -0.5, -0.5, -0.5,  0.0, 0.0, // Left Bottom
-        0.5, -0.5, -0.5,  1.0, 0.0, // Right Bottom
-        0.5, -0.5,  0.5,  1.0, 1.0, // Right Top
-        -0.5, -0.5,  0.5,  0.0, 1.0, // Left Top
-
-        // Top
-        -0.5,  0.5,  0.5,  0.0, 0.0, // Left Bottom
-        0.5,  0.5,  0.5,  1.0, 0.0, // Right Bottom
-        0.5,  0.5, -0.5,  1.0, 1.0, // Right Top
-        -0.5,  0.5, -0.5,  0.0, 1.0, // Left Top
-    }
-
-
-
-    indices := [?]u32{
-        // Front
-        0,  1,  2,  2,  3,  0,
-
-        // Right
-        4,  5,  6,  6,  7,  4,
-
-        // Back
-        8,  9, 10, 10, 11,  8,
-
-        // Left
-        12, 13, 14, 14, 15, 12,
-
-        // Bottom
-        16, 17, 18, 18, 19, 16,
-
-        // Top
-        20, 21, 22, 22, 23, 20,
-    }
-
     // load texture
     // flip y axis (because opengl is upside down)
     stbi.set_flip_vertically_on_load(1)
@@ -362,30 +321,6 @@ init :: proc() {
     // enable depth testing
     gl.Enable(gl.DEPTH_TEST)
 
-    // generate buffers
-    gl.GenVertexArrays(1, &vao)
-    gl.GenBuffers(1, &vbo)
-    gl.GenBuffers(1, &ebo)
-
-    // bind buffers
-    gl.BindVertexArray(vao)
-    gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-    gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
-
-    // load buffer data
-    gl.BufferData(gl.ARRAY_BUFFER, size_of(vertices), &vertices, gl.STATIC_DRAW)
-    gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(indices), &indices, gl.STATIC_DRAW)
-
-    // set vertex attributes
-    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 5 * size_of(f32), uintptr(0))
-    gl.EnableVertexAttribArray(0)
-    gl.VertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, 5 * size_of(f32), uintptr(3 * size_of(f32)))
-    gl.EnableVertexAttribArray(1)
-
-    // unbind buffers
-    gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-    gl.BindVertexArray(0)
-
     u_proj  = gl.GetUniformLocation(program, "u_Projection")
     u_view  = gl.GetUniformLocation(program, "u_View")
     u_model = gl.GetUniformLocation(program, "u_Model")
@@ -395,6 +330,7 @@ init :: proc() {
         world_chunk.blocks[i] = .Air
     }  
 
+    
     // set half of the chunk to solid
     for x := 0; x < 10; x += 1 {
         for y := 0; y < 5; y += 1 {
@@ -404,6 +340,8 @@ init :: proc() {
             }
         }
     }
+    
+    world_chunk.dirty = true
 }
 
 update :: proc() {
@@ -478,9 +416,10 @@ draw :: proc() {
     if world_chunk.dirty {
         chunk_build_mesh(&world_chunk, &chunk_mesh)
         world_chunk.dirty = false
+        upload_chunk_mesh(&chunk_mesh)
     }
-    fmt.printf("verts: %d  inds: %d\n", len(chunk_mesh.vertices)/5, len(chunk_mesh.indices))
-    upload_chunk_mesh(&chunk_mesh)
+    fmt.printf("verts: %d  inds: %d\n", len(chunk_mesh.vertices)/8, len(chunk_mesh.indices))
+
     draw_chunk_mesh(&chunk_mesh)
 }
 
