@@ -20,9 +20,11 @@ program, vao, vbo, ebo, texture : u32
 u_proj, u_view, u_model : i32
 stride : i32 = 8 * size_of(f32)
 
-
-
 WIDTH, HEIGHT : i32 = 512, 512
+
+ATLAS_TILES_X, ATLAS_TILES_Y : i32 = 16, 16
+ATLAS_TILE_U, ATLAS_TILE_V : f32 = 1.0 / f32(ATLAS_TILES_X), 1.0 / f32(ATLAS_TILES_Y)
+
 
 camera_pos := [3]f32{0.0, 0.0, 3.0}
 camera_front := [3]f32{0.0, 0.0, -1.0}
@@ -37,8 +39,13 @@ delta_time := f64(0.0)
 last_frame := f64(0.0)
 
 Block_ID :: enum u8 {
-    Air = 0,
+    Air,
     Solid,
+}
+
+block_tile := [Block_ID][2]int {
+    .Air = {0, 0},
+    .Solid = {1, 0},
 }
 
 Face_Dir :: enum {
@@ -80,16 +87,44 @@ face_normals := [Face_Dir][3]f32{
     .NegZ = { 0, 0, -1 },
 }
 
-emit_face :: proc(mesh : ^Chunk_Mesh, x, y, z : int, dir: Face_Dir) {
+emit_face :: proc(mesh : ^Chunk_Mesh, chunk_pos: [3]i32, x, y, z: i32, dir: Face_Dir, block_id: Block_ID) {
     base_index := u32(len(mesh.vertices) / 8) // 8 floats per vertex 3 pos, 3 normal, 2 uv
+
+    tile := block_tile[block_id]
+    tx, ty := tile[0], tile[1]
+
+    u_min := f32(tx) * ATLAS_TILE_U
+    v_min := f32(ty) * ATLAS_TILE_V
+    u_max := u_min + ATLAS_TILE_U
+    v_max := v_min + ATLAS_TILE_V
+
+    uvs: [4][2]f32
+    switch dir {
+        case .PosX: // BL, TL, TR, BR
+            uvs = { {u_min, v_min}, {u_min, v_max}, {u_max, v_max}, {u_max, v_min} } 
+        case .NegX: // BR, TR, TL, BL
+            uvs = { {u_max, v_min}, {u_max, v_max}, {u_min, v_max}, {u_min, v_min} }
+        case .PosY: // TL, TR, BR, BL
+            uvs = { {u_min, v_max}, {u_max, v_max}, {u_max, v_min}, {u_min, v_min} }
+        case .NegY: // BL, BR, TR, TL
+            uvs = { {u_min, v_min}, {u_max, v_min}, {u_max, v_max}, {u_min, v_max} }
+        case .PosZ: // BL, BR, TR, TL
+            uvs = { {u_min, v_min}, {u_max, v_min}, {u_max, v_max}, {u_min, v_max} }
+        case .NegZ: // BR, BL, TL, TR
+            uvs = { {u_max, v_min}, {u_min, v_min}, {u_min, v_max}, {u_max, v_max} }
+    }
 
     for v in 0..<4 { // 4 vertices per face
         pos := face_vertices[dir][v] // get vertex position
 
+        wx := f32(chunk_pos[0] * CHUNK_SIZE + x) + pos[0]
+        wy := f32(chunk_pos[1] * CHUNK_SIZE + y) + pos[1]
+        wz := f32(chunk_pos[2] * CHUNK_SIZE + z) + pos[2]
+
         // position
-        append(&mesh.vertices, f32(x) + pos[0])
-        append(&mesh.vertices, f32(y) + pos[1])
-        append(&mesh.vertices, f32(z) + pos[2])
+        append(&mesh.vertices, wx)
+        append(&mesh.vertices, wy)
+        append(&mesh.vertices, wz)
 
         // normal
         append(&mesh.vertices, face_normals[dir][0])
@@ -97,7 +132,6 @@ emit_face :: proc(mesh : ^Chunk_Mesh, x, y, z : int, dir: Face_Dir) {
         append(&mesh.vertices, face_normals[dir][2])
 
         // UV
-        uvs := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
         append(&mesh.vertices, uvs[v][0])
         append(&mesh.vertices, uvs[v][1])
     }
@@ -148,27 +182,27 @@ chunk_build_mesh :: proc(chunk : ^Chunk, mesh : ^Chunk_Mesh) {
                 
                 // +X
                 if !in_bounds(x + 1, y, z) || chunk.blocks[chunk_index(x + 1, y, z)] == .Air {
-                    emit_face(mesh, x, y, z, Face_Dir.PosX)
+                    emit_face(mesh, chunk.position, i32(x), i32(y), i32(z), Face_Dir.PosX, chunk.blocks[idx])
                 }
                 // -X
                 if !in_bounds(x - 1, y, z) || chunk.blocks[chunk_index(x - 1, y, z)] == .Air {
-                    emit_face(mesh, x, y, z, Face_Dir.NegX)
+                    emit_face(mesh, chunk.position, i32(x), i32(y), i32(z), Face_Dir.NegX, chunk.blocks[idx])
                 }
                 // +Y    
                 if !in_bounds(x, y + 1, z) || chunk.blocks[chunk_index(x, y + 1, z)] == .Air {
-                    emit_face(mesh, x, y, z, Face_Dir.PosY)
+                    emit_face(mesh, chunk.position, i32(x), i32(y), i32(z), Face_Dir.PosY, chunk.blocks[idx])
                 }
                 // -Y
                 if !in_bounds(x, y - 1, z) || chunk.blocks[chunk_index(x, y - 1, z)] == .Air {
-                    emit_face(mesh, x, y, z, Face_Dir.NegY)
+                    emit_face(mesh, chunk.position, i32(x), i32(y), i32(z), Face_Dir.NegY, chunk.blocks[idx])
                 }
                 // +Z
                 if !in_bounds(x, y, z + 1) || chunk.blocks[chunk_index(x, y, z + 1)] == .Air {
-                    emit_face(mesh, x, y, z, Face_Dir.PosZ)
+                    emit_face(mesh, chunk.position, i32(x), i32(y), i32(z), Face_Dir.PosZ, chunk.blocks[idx])
                 }
                 // -Z
                 if !in_bounds(x, y, z - 1) || chunk.blocks[chunk_index(x, y, z - 1)] == .Air {
-                    emit_face(mesh, x, y, z, Face_Dir.NegZ)
+                    emit_face(mesh, chunk.position, i32(x), i32(y), i32(z), Face_Dir.NegZ, chunk.blocks[idx])
                 }
             }
         }
@@ -223,10 +257,49 @@ in_bounds :: proc(x, y, z: int) -> bool {
             z >= 0 && z < CHUNK_SIZE
 }
 
-//temp
+World :: struct {
+    chunks      : [dynamic]Chunk,
+    chunk_meshes: [dynamic]Chunk_Mesh,
+}
 
-world_chunk : Chunk
-chunk_mesh : Chunk_Mesh
+WORLD_SIZE_X :: 4
+WORLD_SIZE_Z :: 4
+WORLD_SIZE_Y :: 1
+
+world : World
+
+init_world :: proc() {
+    clear(&world.chunks)
+    clear(&world.chunk_meshes)
+
+    for cz in 0..<WORLD_SIZE_Z {
+        for cy in 0..<WORLD_SIZE_Y {
+            for cx in 0..<WORLD_SIZE_X {
+                chunk := Chunk{}
+                chunk.position = {i32(cx), i32(cy), i32(cz)}
+                chunk.dirty = true
+
+                for z in 0..<CHUNK_SIZE {
+                    for y in 0..<CHUNK_SIZE {
+                        for x in 0..<CHUNK_SIZE {
+                            idx := chunk_index(x, y, z)
+
+                            if y < 5 {
+                                chunk.blocks[idx] = .Solid
+                            } else {
+                                chunk.blocks[idx] = .Air
+                            }
+                        }
+                    }
+                }
+
+                append(&world.chunks, chunk)
+                append(&world.chunk_meshes, Chunk_Mesh{})
+            }
+        }
+    }
+}
+
 
 main :: proc() {
     // init glfw
@@ -258,7 +331,7 @@ main :: proc() {
     // set window context
     glfw.MakeContextCurrent(window)
     // set vsync
-    glfw.SwapInterval(1)
+    glfw.SwapInterval(0)
     // set callbacks
     glfw.SetKeyCallback(window, key_callback)
     glfw.SetFramebufferSizeCallback(window, size_callback)
@@ -294,10 +367,10 @@ init :: proc() {
     }
 
     // load texture
-    // flip y axis (because opengl is upside down)
-    stbi.set_flip_vertically_on_load(1)
-    width, height, channels: c.int
-    image_data := stbi.load("textures/cobble_16x16.png", &width, &height, &channels, 4)
+    width, height, channels: i32
+    image_data := stbi.load("textures/atlas.png", &width, &height, &channels, 4)
+    fmt.printf("atlas loaded: %dx%d channels=%d\n", width, height, channels)
+
     if image_data == nil {
         fmt.println("Failed to load texture")
     }
@@ -310,12 +383,12 @@ init :: proc() {
     gl.BindTexture(gl.TEXTURE_2D, texture)
 
     // set texture parameters
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 
-    // load texture data
+    // load texture data (use i32 for width/height as gl.TexImage2D expects GLsizei)
     gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, image_data)
 
     // enable depth testing
@@ -325,23 +398,7 @@ init :: proc() {
     u_view  = gl.GetUniformLocation(program, "u_View")
     u_model = gl.GetUniformLocation(program, "u_Model")
 
-    // generate world chunk
-    for i in 0..<CHUNK_VOLUME {
-        world_chunk.blocks[i] = .Air
-    }  
-
-    
-    // set half of the chunk to solid
-    for x := 0; x < 10; x += 1 {
-        for y := 0; y < 5; y += 1 {
-            for z := 0; z < 10; z += 1 {
-                idx := chunk_index(x, y, z)
-                world_chunk.blocks[idx] = .Solid
-            }
-        }
-    }
-    
-    world_chunk.dirty = true
+    init_world()
 }
 
 update :: proc() {
@@ -389,8 +446,9 @@ movement :: proc() {
 draw :: proc() {
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
+    u_tex := gl.GetUniformLocation(program, "u_Texture")
     gl.UseProgram(program)
-    gl.BindTexture(gl.TEXTURE_2D, texture)
+    gl.Uniform1i(u_tex, 0)
 
     // camera direction
     front : [3]f32
@@ -412,15 +470,23 @@ draw :: proc() {
     gl.UniformMatrix4fv(u_view, 1, false, &view[0,0])
     gl.UniformMatrix4fv(u_proj, 1, false, &proj[0,0])
 
-    // draw objects
-    if world_chunk.dirty {
-        chunk_build_mesh(&world_chunk, &chunk_mesh)
-        world_chunk.dirty = false
-        upload_chunk_mesh(&chunk_mesh)
-    }
-    fmt.printf("verts: %d  inds: %d\n", len(chunk_mesh.vertices)/8, len(chunk_mesh.indices))
+    gl.ActiveTexture(gl.TEXTURE0)
+    gl.BindTexture(gl.TEXTURE_2D, texture)
 
-    draw_chunk_mesh(&chunk_mesh)
+    // draw objects
+    for i in 0..<len(world.chunks) {
+        chunk := &world.chunks[i]
+        chunk_mesh := &world.chunk_meshes[i]
+
+        if chunk.dirty {
+            chunk_build_mesh(chunk, chunk_mesh)
+            chunk.dirty = false
+            upload_chunk_mesh(chunk_mesh)
+        }
+        
+        draw_chunk_mesh(chunk_mesh)
+    }
+
 }
 
 exit :: proc() {
