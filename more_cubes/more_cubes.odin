@@ -40,6 +40,61 @@ Block_ID :: enum u8 {
     Solid,
 }
 
+Face_Dir :: enum {
+    PosX,
+    NegX,
+    PosY,
+    NegY,
+    PosZ,
+    NegZ,
+}
+
+face_vertices := [Face_Dir][4][3]f32{
+    Face_Dir.PosX = {
+        {1,0,0}, {1,1,0}, {1,1,1}, {1,0,1},
+    },
+    Face_Dir.NegX = {
+        {0,0,1}, {0,1,1}, {0,1,0}, {0,0,0},
+    },
+    Face_Dir.PosY = {
+        {0,1,1}, {1,1,1}, {1,1,0}, {0,1,0},
+    },
+    Face_Dir.NegY = {
+        {0,0,0}, {1,0,0}, {1,0,1}, {0,0,1},
+    },
+    Face_Dir.PosZ = {
+        {0,0,1}, {1,0,1}, {1,1,1}, {0,1,1},
+    },
+    Face_Dir.NegZ = {
+        {1,0,0}, {0,0,0}, {0,1,0}, {1,1,0},
+    },
+}
+
+emit_face :: proc(mesh : ^Chunk_Mesh, x, y, z : int, dir: Face_Dir) {
+    base_index := u32(len(mesh.vertices) / 5) // 5 floats per vertex 3 pos, 2 uv
+
+    for v in 0..<4 { // 4 vertices per face
+        pos := face_vertices[dir][v] // get vertex position
+
+        append(&mesh.vertices, f32(x) + pos[0])
+        append(&mesh.vertices, f32(y) + pos[1])
+        append(&mesh.vertices, f32(z) + pos[2])
+
+        uvs := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+        append(&mesh.vertices, uvs[v][0])
+        append(&mesh.vertices, uvs[v][1])
+    }
+
+    append(&mesh.indices, base_index + 0)
+    append(&mesh.indices, base_index + 1)
+    append(&mesh.indices, base_index + 2)
+
+    append(&mesh.indices, base_index + 2)
+    append(&mesh.indices, base_index + 3)
+    append(&mesh.indices, base_index + 0)
+}
+
+
 CHUNK_SIZE :: 16
 CHUNK_AREA :: CHUNK_SIZE * CHUNK_SIZE
 CHUNK_VOLUME :: CHUNK_AREA * CHUNK_SIZE
@@ -48,13 +103,108 @@ Chunk :: struct {
     blocks : [CHUNK_VOLUME]Block_ID
 }
 
+Chunk_Mesh :: struct {
+    vertices : [dynamic]f32,
+    indices  : [dynamic]u32,
+
+    vao, vbo, ebo : u32
+}
+
 chunk_index :: proc(x, y, z: int) -> int {
     return x + CHUNK_SIZE * (y + CHUNK_SIZE * z)
+}
+
+chunk_build_mesh :: proc(chunk : ^Chunk, mesh : ^Chunk_Mesh) {
+    clear(&mesh.vertices)
+    clear(&mesh.indices)
+
+    for z in 0..<CHUNK_SIZE {
+        for y in 0..<CHUNK_SIZE {
+            for x in 0..<CHUNK_SIZE {
+                idx := chunk_index(x, y, z)
+                if chunk.blocks[idx] == .Air {
+                    continue
+                }
+                
+                // +X
+                if !in_bounds(x + 1, y, z) || chunk.blocks[chunk_index(x + 1, y, z)] == .Air {
+                    emit_face(mesh, x, y, z, Face_Dir.PosX)
+                }
+                // -X
+                if !in_bounds(x - 1, y, z) || chunk.blocks[chunk_index(x - 1, y, z)] == .Air {
+                    emit_face(mesh, x, y, z, Face_Dir.NegX)
+                }
+                // +Y    
+                if !in_bounds(x, y + 1, z) || chunk.blocks[chunk_index(x, y + 1, z)] == .Air {
+                    emit_face(mesh, x, y, z, Face_Dir.PosY)
+                }
+                // -Y
+                if !in_bounds(x, y - 1, z) || chunk.blocks[chunk_index(x, y - 1, z)] == .Air {
+                    emit_face(mesh, x, y, z, Face_Dir.NegY)
+                }
+                // +Z
+                if !in_bounds(x, y, z + 1) || chunk.blocks[chunk_index(x, y, z + 1)] == .Air {
+                    emit_face(mesh, x, y, z, Face_Dir.PosZ)
+                }
+                // -Z
+                if !in_bounds(x, y, z - 1) || chunk.blocks[chunk_index(x, y, z - 1)] == .Air {
+                    emit_face(mesh, x, y, z, Face_Dir.NegZ)
+                }
+            }
+        }
+    }
+}
+
+upload_chunk_mesh :: proc(mesh : ^Chunk_Mesh) {
+    if mesh.vao == 0 {
+        gl.GenVertexArrays(1, &mesh.vao)
+        gl.GenBuffers(1, &mesh.vbo)
+        gl.GenBuffers(1, &mesh.ebo)
+    }
+
+    gl.BindVertexArray(mesh.vao)
+
+    gl.BindBuffer(gl.ARRAY_BUFFER, mesh.vbo)
+    gl.BufferData(
+        gl.ARRAY_BUFFER,
+        len(mesh.vertices) * size_of(f32),
+        &mesh.vertices[0],
+        gl.STATIC_DRAW
+    )
+
+    gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.ebo)
+    gl.BufferData(
+        gl.ELEMENT_ARRAY_BUFFER,
+        len(mesh.indices) * size_of(u32),
+        &mesh.indices[0],
+        gl.STATIC_DRAW
+    )
+
+    // vertex layout (same as your cube)
+    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 5 * size_of(f32), uintptr(0))
+    gl.EnableVertexAttribArray(0)
+    gl.VertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, 5 * size_of(f32), uintptr(3 * size_of(f32)))
+    gl.EnableVertexAttribArray(1)
+
+    gl.BindVertexArray(0)
+}
+
+
+draw_chunk_mesh :: proc(chunk_mesh : ^Chunk_Mesh) {
+    gl.BindVertexArray(chunk_mesh.vao)
+    gl.DrawElements(gl.TRIANGLES, i32(len(chunk_mesh.indices)), gl.UNSIGNED_INT, nil)
+}
+
+in_bounds :: proc(x, y, z: int) -> bool {
+    return  x >= 0 && x < CHUNK_SIZE && 
+            y >= 0 && y < CHUNK_SIZE && 
+            z >= 0 && z < CHUNK_SIZE
 }
 
 //temp
 
 world_chunk : Chunk
+chunk_mesh : Chunk_Mesh
 
 main :: proc() {
     // init glfw
@@ -300,7 +450,6 @@ draw :: proc() {
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
     gl.UseProgram(program)
-    gl.BindVertexArray(vao)
     gl.BindTexture(gl.TEXTURE_2D, texture)
 
     // camera direction
@@ -316,39 +465,22 @@ draw :: proc() {
         f32(WIDTH)/f32(HEIGHT),
         0.1, 100.0
     )
+    model := linalg.MATRIX4F32_IDENTITY
+    gl.UniformMatrix4fv(u_model, 1, false, &model[0,0])
 
     // upload once per frame
     gl.UniformMatrix4fv(u_view, 1, false, &view[0,0])
     gl.UniformMatrix4fv(u_proj, 1, false, &proj[0,0])
 
     // draw objects
-    draw_chunk_blocks(&world_chunk)
-}
-
-draw_block :: proc(pos: [3]f32) {
-    model := linalg.matrix4_translate_f32(pos)
-    gl.UniformMatrix4fv(u_model, 1, false, &model[0,0])
-    gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, nil)
-}
-
-draw_chunk_blocks :: proc(chunk: ^Chunk) {
-    for z in 0..<CHUNK_SIZE {
-        for y in 0..<CHUNK_SIZE {
-            for x in 0..<CHUNK_SIZE {
-                idx := chunk_index(x, y, z)
-                if chunk.blocks[idx] == .Air {
-                    continue
-                }
-
-                pos := [3]f32{f32(x), f32(y), f32(z)}
-                draw_block(pos)
-            }
-        }
-    }
+    chunk_build_mesh(&world_chunk, &chunk_mesh)
+    fmt.printf("verts: %d  inds: %d\n", len(chunk_mesh.vertices)/5, len(chunk_mesh.indices))
+    upload_chunk_mesh(&chunk_mesh)
+    draw_chunk_mesh(&chunk_mesh)
 }
 
 exit :: proc() {
-    
+
 }
 
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
