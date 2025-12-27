@@ -1,6 +1,5 @@
-package more_cubes
+package chunks
 
-import "core:math/rand"
 import "core:fmt"
 import "core:c"
 import "core:math"
@@ -100,7 +99,10 @@ CHUNK_AREA :: CHUNK_SIZE * CHUNK_SIZE
 CHUNK_VOLUME :: CHUNK_AREA * CHUNK_SIZE
 
 Chunk :: struct {
-    blocks : [CHUNK_VOLUME]Block_ID
+    blocks : [CHUNK_VOLUME]Block_ID,
+    position : [3]i32,
+    // if chunk changed since last update 
+    dirty : bool
 }
 
 Chunk_Mesh :: struct {
@@ -473,7 +475,10 @@ draw :: proc() {
     gl.UniformMatrix4fv(u_proj, 1, false, &proj[0,0])
 
     // draw objects
-    chunk_build_mesh(&world_chunk, &chunk_mesh)
+    if world_chunk.dirty {
+        chunk_build_mesh(&world_chunk, &chunk_mesh)
+        world_chunk.dirty = false
+    }
     fmt.printf("verts: %d  inds: %d\n", len(chunk_mesh.vertices)/5, len(chunk_mesh.indices))
     upload_chunk_mesh(&chunk_mesh)
     draw_chunk_mesh(&chunk_mesh)
